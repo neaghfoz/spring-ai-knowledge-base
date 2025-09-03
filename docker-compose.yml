@@ -1,0 +1,37 @@
+version: "3.8"
+services:
+  db:
+    image: ankane/pgvector:latest
+    container_name: sakb-postgres
+    environment:
+      POSTGRES_USER: sakb
+      POSTGRES_PASSWORD: sakb
+      POSTGRES_DB: sakb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./src/main/resources/db/pgvector-init.sql:/docker-entrypoint-initdb.d/pgvector-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sakb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: sakb-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+  ollama:
+
