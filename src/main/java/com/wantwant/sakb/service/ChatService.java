@@ -2,14 +2,19 @@ package com.wantwant.sakb.service;
 
 import com.wantwant.sakb.exception.NotFoundException;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
 public class ChatService {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
     public static class ChatAnswer {
         public final String answer;
@@ -37,18 +42,21 @@ public class ChatService {
     private final Embeddings embeddings;
     private final VectorStore vectorStore;
     private final ConversationMemoryService memoryService;
-    private final ChatClient chatClient; // may be null
+    private final ObjectProvider<ChatClient> chatClientProvider;
+    private final ObjectProvider<ChatModel> chatModelProvider;
 
     public ChatService(KnowledgeBaseService kbService,
                        Embeddings embeddings,
                        VectorStore vectorStore,
                        ConversationMemoryService memoryService,
-                       ObjectProvider<ChatClient> chatClientProvider) {
+                       ObjectProvider<ChatClient> chatClientProvider,
+                       ObjectProvider<ChatModel> chatModelProvider) {
         this.kbService = kbService;
         this.embeddings = embeddings;
         this.vectorStore = vectorStore;
         this.memoryService = memoryService;
-        this.chatClient = chatClientProvider.getIfAvailable();
+        this.chatClientProvider = chatClientProvider;
+        this.chatModelProvider = chatModelProvider;
     }
 
     public ChatAnswer chat(String kbId, String question, int topK, String sessionId) {
@@ -60,15 +68,31 @@ public class ChatService {
                 .collect(Collectors.toList());
         String context = hits.stream().map(h -> h.item().getText()).collect(Collectors.joining("\n---\n"));
         String history = buildHistory(sessionId);
-        String prompt = "You are a helpful assistant. Use only the provided context and prior turns to answer.\n" +
-                "If the answer cannot be found, say you don't know.\n\n" +
-                (history.isBlank() ? "" : ("Conversation History:\n" + history + "\n\n")) +
-                "Context:\n" + context + "\n\nQuestion: " + question + "\nAnswer:";
+        String prompt = "你是一个有帮助的助手。请仅使用提供的上下文和先前对话进行回答。\n" +
+                "如果无法从上下文中找到答案，请直接说明你不知道。\n" +
+                "所有回答必须使用简体中文。\n\n" +
+                (history.isBlank() ? "" : ("��话历史：\n" + history + "\n\n")) +
+                "上下文：\n" + context + "\n\n问题：" + question + "\n回答：";
+        ChatClient chatClient = chatClientProvider.getIfAvailable();
+        if (chatClient == null) {
+            ChatModel model = chatModelProvider.getIfAvailable();
+            if (model != null) {
+                chatClient = ChatClient.create(model);
+                log.debug("Constructed ChatClient on the fly from ChatModel.");
+            }
+        }
         String answer;
-        if (chatClient != null) {
-            answer = chatClient.prompt().system(prompt).call().content();
-        } else {
+        if (chatClient == null) {
+            log.debug("Using local fallback to generate answer (no ChatClient).");
             answer = fallbackAnswer(context, question, history);
+        } else {
+            try {
+                log.debug("Generating answer using ChatClient (LLM provider).");
+                answer = chatClient.prompt().system(prompt).call().content();
+            } catch (Exception ex) {
+                log.warn("Chat provider failed; falling back to local mode: {}", ex.toString());
+                answer = fallbackAnswer(context, question, history);
+            }
         }
         if (sessionId != null && !sessionId.isBlank()) {
             memoryService.append(sessionId, question, answer);
@@ -88,8 +112,9 @@ public class ChatService {
 
     private String fallbackAnswer(String context, String question, String history) {
         String combined = (history == null ? "" : history) + "\n" + (context == null ? "" : context);
-        if (combined.isBlank()) return "I don't know based on the current knowledge base.";
+        if (combined.isBlank()) return "基于当前知识库，我无法回答。";
         String snippet = combined.length() > 600 ? combined.substring(0, 600) + "..." : combined;
-        return "(Local fallback) Based on KB and history: \n" + snippet;
+        String qText = (question == null || question.isBlank()) ? "（未提供）" : question;
+        return "（本地回退）针对问题：" + qText + "\n根据知识库与对话历史：\n" + snippet;
     }
 }

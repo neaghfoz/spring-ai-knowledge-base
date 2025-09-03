@@ -11,8 +11,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pgvector.PGvector;
 import com.wantwant.sakb.model.DocumentChunk;
+import org.postgresql.util.PGobject;
 
 @Service
 @Profile("pg")
@@ -20,6 +22,7 @@ public class PostgresVectorStore implements VectorStore {
 
     private final JdbcTemplate jdbcTemplate;
     private final int dim;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public PostgresVectorStore(JdbcTemplate jdbcTemplate,
                                @Value("${kb.vector.dim:1536}") int dim) {
@@ -31,11 +34,16 @@ public class PostgresVectorStore implements VectorStore {
     public void addAll(String kbId, List<DocumentChunk> chunks) {
         if (chunks == null || chunks.isEmpty()) return;
         String sql = "INSERT INTO kb_chunks (id, kb_id, source_name, chunk_index, text, embedding, metadata, created_at) " +
-                "VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, to_jsonb(?)::jsonb, now())";
+                "VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?::jsonb, now())";
         List<Object[]> batch = new ArrayList<>();
         for (DocumentChunk c : chunks) {
             PGvector vec = new PGvector(padOrTruncate(c.getEmbedding()));
-            String metaJson = c.getMetadata() == null ? "{}" : c.getMetadata().toString();
+            String metaJson;
+            try {
+                metaJson = mapper.writeValueAsString(c.getMetadata() == null ? java.util.Map.of() : c.getMetadata());
+            } catch (Exception e) {
+                metaJson = "{}";
+            }
             batch.add(new Object[]{kbId, c.getSourceName(), c.getChunkIndex(), c.getText(), vec, metaJson});
         }
         jdbcTemplate.batchUpdate(sql, batch);
@@ -73,8 +81,8 @@ public class PostgresVectorStore implements VectorStore {
         String source = rs.getString("source_name");
         int idx = rs.getInt("chunk_index");
         String text = rs.getString("text");
-    PGvector vec = (PGvector) rs.getObject("embedding");
-    float[] emb = toFloatArray(vec);
+        Object embObj = rs.getObject("embedding");
+        float[] emb = parseEmbedding(embObj);
         // metadata parsing skipped (stored as jsonb); could parse to Map if needed
         return new DocumentChunk(kbId, source, idx, text, emb, java.util.Map.of());
     }
@@ -87,10 +95,30 @@ public class PostgresVectorStore implements VectorStore {
         return out;
     }
 
+    private float[] parseEmbedding(Object obj) throws SQLException {
+        if (obj == null) return new float[dim];
+        if (obj instanceof PGvector v) {
+            return toFloatArray(v.getValue());
+        }
+        if (obj instanceof PGobject pgo) {
+            // Expect type "vector" with textual value like "[0.1,0.2,...]"
+            String s = pgo.getValue();
+            return toFloatArray(s);
+        }
+        if (obj instanceof String s) {
+            return toFloatArray(s);
+        }
+        // Fallback: try toString
+        return toFloatArray(obj.toString());
+    }
+
     private float[] toFloatArray(PGvector v) {
         if (v == null || v.getValue() == null) return new float[dim];
-        // PGvector stores value as a String like "[0.1,0.2,...]"
-        String s = v.getValue();
+        return toFloatArray(v.getValue());
+    }
+
+    private float[] toFloatArray(String s) {
+        if (s == null) return new float[dim];
         s = s.trim();
         if (s.startsWith("[")) s = s.substring(1);
         if (s.endsWith("]")) s = s.substring(0, s.length() - 1);
@@ -103,4 +131,3 @@ public class PostgresVectorStore implements VectorStore {
         return f;
     }
 }
-

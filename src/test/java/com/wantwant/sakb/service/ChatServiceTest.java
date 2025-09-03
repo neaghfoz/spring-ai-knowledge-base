@@ -2,6 +2,7 @@ package com.wantwant.sakb.service;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.List;
@@ -12,7 +13,7 @@ class ChatServiceTest {
 
     @Test
     void chat_usesFallbackWithoutChatClient() {
-    KnowledgeBaseService kb = new InMemoryKnowledgeBaseService();
+        KnowledgeBaseService kb = new InMemoryKnowledgeBaseService();
         var kbObj = kb.create("kb", "test");
         EmbeddingService embedding = new EmbeddingService();
         VectorStoreService store = new VectorStoreService();
@@ -23,14 +24,20 @@ class ChatServiceTest {
                 new com.wantwant.sakb.model.DocumentChunk(kbObj.getId(), "seed", 0, "Spring AI helps build AI apps", e, java.util.Map.of())
         ));
 
-        ObjectProvider<ChatClient> provider = new ObjectProvider<>() {
+        ObjectProvider<ChatClient> chatClientProvider = new ObjectProvider<>() {
             @Override public ChatClient getObject(Object... args) { return null; }
             @Override public ChatClient getIfAvailable() { return null; }
             @Override public ChatClient getIfUnique() { return null; }
             @Override public ChatClient getObject() { return null; }
         };
+        ObjectProvider<ChatModel> chatModelProvider = new ObjectProvider<>() {
+            @Override public ChatModel getObject(Object... args) { return null; }
+            @Override public ChatModel getIfAvailable() { return null; }
+            @Override public ChatModel getIfUnique() { return null; }
+            @Override public ChatModel getObject() { return null; }
+        };
 
-        ChatService chat = new ChatService(kb, embedding, store, memory, provider);
+        ChatService chat = new ChatService(kb, embedding, store, memory, chatClientProvider, chatModelProvider);
         var ans = chat.chat(kbObj.getId(), "What does Spring AI help with?", 3, null);
         assertNotNull(ans);
         assertNotNull(ans.answer);
