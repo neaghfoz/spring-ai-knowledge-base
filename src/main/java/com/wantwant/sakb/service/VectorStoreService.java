@@ -38,4 +38,46 @@ public class VectorStoreService implements VectorStore {
                 .limit(topK)
                 .collect(Collectors.toList());
     }
+
+    @Override
+    public List<DocumentChunk> list(String kbId, String sourceName) {
+        return byKb.getOrDefault(kbId, List.of()).stream()
+                .filter(c -> Objects.equals(sourceName, c.getSourceName()))
+                .sorted(Comparator.comparingInt(DocumentChunk::getChunkIndex))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public int count(String kbId, String sourceName) {
+        return (int) byKb.getOrDefault(kbId, List.of()).stream()
+                .filter(c -> Objects.equals(sourceName, c.getSourceName()))
+                .count();
+    }
+
+    @Override
+    public void deleteBySource(String kbId, String sourceName) {
+        List<DocumentChunk> list = byKb.getOrDefault(kbId, List.of());
+        list.removeIf(c -> Objects.equals(sourceName, c.getSourceName()));
+    }
+
+    @Override
+    public void deleteChunk(String kbId, String sourceName, int chunkIndex) {
+        List<DocumentChunk> list = byKb.getOrDefault(kbId, List.of());
+        list.removeIf(c -> Objects.equals(sourceName, c.getSourceName()) && c.getChunkIndex() == chunkIndex);
+    }
+
+    @Override
+    public void upsert(String kbId, DocumentChunk chunk) {
+        deleteChunk(kbId, chunk.getSourceName(), chunk.getChunkIndex());
+        addAll(kbId, List.of(chunk));
+    }
+
+    // Helper for listing sources
+    public List<String> listSources(String kbId) {
+        return byKb.getOrDefault(kbId, List.of()).stream()
+                .map(DocumentChunk::getSourceName)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+    }
 }

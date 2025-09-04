@@ -72,6 +72,41 @@ public class PostgresVectorStore implements VectorStore {
         }, q, kbId, q, topK);
     }
 
+    @Override
+    public List<DocumentChunk> list(String kbId, String sourceName) {
+        String sql = "SELECT kb_id, source_name, chunk_index, text, embedding, metadata FROM kb_chunks WHERE kb_id=? AND source_name=? ORDER BY chunk_index";
+        return jdbcTemplate.query(sql, rowMapper(), kbId, sourceName);
+    }
+
+    @Override
+    public int count(String kbId, String sourceName) {
+        Integer n = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM kb_chunks WHERE kb_id=? AND source_name=?", Integer.class, kbId, sourceName);
+        return n == null ? 0 : n;
+    }
+
+    @Override
+    public void deleteBySource(String kbId, String sourceName) {
+        jdbcTemplate.update("DELETE FROM kb_chunks WHERE kb_id=? AND source_name=?", kbId, sourceName);
+    }
+
+    @Override
+    public void deleteChunk(String kbId, String sourceName, int chunkIndex) {
+        jdbcTemplate.update("DELETE FROM kb_chunks WHERE kb_id=? AND source_name=? AND chunk_index=?", kbId, sourceName, chunkIndex);
+    }
+
+    @Override
+    public void upsert(String kbId, DocumentChunk chunk) {
+        // No unique constraint on (kb_id, source_name, chunk_index); emulate upsert by delete+insert
+        deleteChunk(kbId, chunk.getSourceName(), chunk.getChunkIndex());
+        addAll(kbId, java.util.List.of(chunk));
+    }
+
+    @Override
+    public List<String> listSources(String kbId) {
+        String sql = "SELECT DISTINCT source_name FROM kb_chunks WHERE kb_id=? ORDER BY source_name";
+        return jdbcTemplate.queryForList(sql, String.class, kbId);
+    }
+
     private RowMapper<DocumentChunk> rowMapper() {
         return (rs, rowNum) -> mapChunk(rs);
     }

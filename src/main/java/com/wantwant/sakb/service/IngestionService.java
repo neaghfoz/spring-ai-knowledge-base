@@ -56,6 +56,41 @@ public class IngestionService {
         }
     }
 
+    // ===== Management APIs =====
+    public List<String> listSources(String kbId) {
+        ensureKb(kbId);
+        return vectorStoreService.listSources(kbId);
+    }
+
+    public List<DocumentChunk> listChunks(String kbId, String sourceName) {
+        ensureKb(kbId);
+        return vectorStoreService.list(kbId, sourceName);
+    }
+
+    public int countChunks(String kbId, String sourceName) {
+        ensureKb(kbId);
+        return vectorStoreService.count(kbId, sourceName);
+    }
+
+    public void deleteSource(String kbId, String sourceName) {
+        ensureKb(kbId);
+        vectorStoreService.deleteBySource(kbId, sourceName);
+    }
+
+    public void deleteChunk(String kbId, String sourceName, int chunkIndex) {
+        ensureKb(kbId);
+        vectorStoreService.deleteChunk(kbId, sourceName, chunkIndex);
+    }
+
+    public void upsertChunk(String kbId, String sourceName, int chunkIndex, String text, Map<String, Object> metadata) {
+        ensureKb(kbId);
+        float[] emb = embeddingService.embed(text == null ? "" : text);
+        Map<String, Object> meta = new HashMap<>();
+        if (metadata != null) meta.putAll(metadata);
+        DocumentChunk chunk = new DocumentChunk(kbId, sourceName, chunkIndex, text, emb, meta);
+        vectorStoreService.upsert(kbId, chunk);
+    }
+
     private void ensureKb(String kbId) {
         kbService.get(kbId).orElseThrow(() -> new com.wantwant.sakb.exception.NotFoundException("KnowledgeBase not found: " + kbId));
     }
