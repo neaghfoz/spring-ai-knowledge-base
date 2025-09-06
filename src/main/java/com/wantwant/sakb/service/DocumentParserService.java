@@ -16,7 +16,6 @@ import java.util.*;
 
 // POI
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 
 @Service
 public class DocumentParserService {
@@ -116,8 +115,6 @@ public class DocumentParserService {
             meta.put("sheets", sheets);
             String text = String.join("\n", lines);
             return new ParsedDocument(text, meta);
-        } catch (InvalidFormatException e) {
-            throw new RuntimeException("Unsupported Excel format", e);
         }
     }
 
